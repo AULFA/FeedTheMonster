@@ -19,6 +19,9 @@ import java.io.InputStreamReader;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import org.libraryforall.analytics.AnalyticsRepository;
+import org.libraryforall.analytics.data.Event;
+
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -29,6 +32,7 @@ import java.util.zip.ZipOutputStream;
 import java.net.NetworkInterface;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Created by ingtellect on 7/14/17.
@@ -43,6 +47,7 @@ public class Logger {
     private Context _ctnx;
 
     private String deviceID;
+    private AnalyticsRepository analyticsRepository;
 
     public static String getMacAddr() {
         try {
@@ -92,8 +97,9 @@ public class Logger {
         }
         _ctnx = ctnx;
         deviceID = Settings.Secure.getString(ctnx.getContentResolver(), Settings.Secure.ANDROID_ID);
+        analyticsRepository = new AnalyticsRepository(ctnx);
     }
-    
+
     public static Logger getInstance(String appName, Context ctnx) {
         if (logger == null) {
             logger = new Logger(appName, ctnx);
@@ -102,6 +108,7 @@ public class Logger {
     }
 
     public void tagScreen(String screenName) {
+        Log.d(TAG, "Writing log to file " + screenName);
         try {
             JSONObject eventValue = new JSONObject();
             eventValue.put("category", screenName);
@@ -114,6 +121,7 @@ public class Logger {
     }
 
     public void logEvent(String category, String event, String label, double value) {
+        Log.d(TAG, "Writing log to file " + category + " " + event + " " + label);
         try {
             JSONObject eventValue = new JSONObject();
             eventValue.put("category", category);
@@ -161,13 +169,15 @@ public class Logger {
             } catch (Exception e) {
             }
         }
+        long timestamp = System.currentTimeMillis();
+		JSONObject eventJson = null;
         try {
             FileWriter fw = new FileWriter(logPath.getAbsoluteFile(), true);
             BufferedWriter bw = new BufferedWriter(fw);
 
-            JSONObject eventJson = new JSONObject(eventString);
+            eventJson = new JSONObject(eventString);
             JSONObject logJson = new JSONObject();
-            logJson.put("timeStamp", (double) (System.currentTimeMillis() / 1000));
+            logJson.put("timeStamp", (double) (timestamp / 1000));
             logJson.put("device_id", deviceID);
             Iterator<String> keys = eventJson.keys();
             while (keys.hasNext()) {
@@ -179,6 +189,18 @@ public class Logger {
         } catch (Exception e) {
             Log.e(TAG, e.getMessage());
         }
+
+        if (eventJson != null) {
+			try {
+				UUID analyticsId = null;
+				analyticsRepository.addEvent(Event.fromJson(timestamp, analyticsId, deviceID, "FeedTheMonster", eventJson));
+			} catch (Exception e) {
+				Log.e(TAG, "Could not send event to the content provider: " + e);
+			}
+		} else {
+			Log.w(TAG, "No event data to send to the content provider");
+		}
+
         long logSize = logPath.length();
         if (logSize < 100 * 1024) {
             return;
